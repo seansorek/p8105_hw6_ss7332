@@ -16,6 +16,8 @@ knitr::opts_chunk$set(echo = TRUE,
 library(tidyverse)
 ```
 
+# Problem 2
+
 ```{r}
 homicide <- read_csv("data/homicide-data.csv") |>
   mutate(
@@ -84,3 +86,79 @@ homicide |>
 
 ```
 
+# Problem 3
+## Data Cleaning
+```{r}
+birthweight <- read_csv("data/birthweight.csv") |>
+  mutate(
+    babysex = factor(babysex, labels = c("male", "female")),
+    frace = factor(frace, labels = c(
+      "White",
+      "Black",
+      "Asian",
+      "Puerto Rican",
+      "Other"
+    )),
+    malform = factor(malform, labels = c(
+      "absent", "present"
+    )),
+    mrace = factor(mrace, labels = c(
+      "White",
+      "Black",
+      "Asian",
+      "Puerto Rican"
+    ))
+  )
+
+
+```
+
+## Model Selection
+```{r}
+step_lm <- step(lm(bwt ~ ., birthweight), direction = "both", trace = 0)
+```
+
+I used step-wise selection with AIC since I have no prior beliefs as to what predictors would significantly affect birth weight.
+
+```{r}
+birthweight |> 
+  modelr::add_residuals(step_lm) |>
+  modelr::add_predictions(step_lm) |>
+  ggplot(aes(pred, resid)) + geom_point() +
+  theme_bw() +
+  labs(x = "Predicted Value", 
+       y = "Residual",
+       title = "Residuals vs Predicted Value for Stepwise AIC Selected Model")
+```
+
+The model appears to be appropriate for birth weights above 2kgs. Since most of the data is in the appropriate range, this model is acceptable.
+
+## Model Comparison
+```{r}
+birthweight |>
+  modelr::crossv_mc(100) |>
+  mutate(
+    step_model = map(train, \(df) lm(formula(step_lm), data = df)),
+    main_model = map(train, \(df) lm(bwt ~ blength + gaweeks, data = df)),
+    int_model = map(train, \(df) lm(bwt ~ bhead * blength * babysex, data = df))
+  ) |>
+  mutate(
+    rmse_step = map2_dbl(
+      step_model, test, \(mod, df) modelr::rmse(model = mod, data = df)),
+    rmse_main = map2_dbl(
+      main_model, test, \(mod, df) modelr::rmse(model = mod, data = df)),
+    rmse_int = map2_dbl(
+      int_model, test, \(mod, df)   modelr::rmse(model = mod, data = df))) |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") |> 
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = model, y = rmse)) + geom_violin() +
+  theme_bw() +
+  labs(title = "RMSE of Different Models")
+```
+
+The model chosen using step-wise selection performs far better than either candidate model.
